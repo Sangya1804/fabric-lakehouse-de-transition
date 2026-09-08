@@ -52,7 +52,7 @@ fact_orders remains a standard fact table, joined to dim_customer on CustomerID 
 📜 Order Status History (SCD Type 2 pattern applied to order status)
 Order status (Ordered → Processing → Shipped → Delivered, or Cancelled/Returned) is tracked as full history, not overwritten in place — so the complete lifecycle of every order is preserved, not just its current state.
 
-<u>fact_order_status_history (silver layer):</u>  
+<ins>fact_order_status_history (silver layer):</ins>  
   __Column__ | __Purpose__
   -- | --
 🔸OrderID | Links back to fact_orders  
@@ -75,22 +75,22 @@ Synthetic retail dataset, designed specifically to demonstrate incremental ETL a
 🔸orders_incremental_day2.csv | ~635 | New orders + ~100 status updates  
 🔸orders_incremental_day3.csv | ~536 | New orders + ~100 status updates
 
-<u>CustomerID</u> — a unique 6-digit number, consistent across all files (not a simple 1, 2, 3… sequence, to better resemble a real-world customer identifier).
+<ins>CustomerID</ins> — a unique 6-digit number, consistent across all files (not a simple 1, 2, 3… sequence, to better resemble a real-world customer identifier).
 
-<u>Customer Master Schema:</u> CustomerID, CustomerName, Email, City, Country, CustomerSince
+<ins>Customer Master Schema:</ins> CustomerID, CustomerName, Email, City, Country, CustomerSince
 
-<u>Customer Change Feed Schema:</u> identical to master — CustomerID, CustomerName, Email, City, Country, CustomerSince
+<ins>Customer Change Feed Schema:</ins> identical to master — CustomerID, CustomerName, Email, City, Country, CustomerSince
 ▫️Modeled as a full-row snapshot feed, not a sparse diff — the source simply sends each customer's complete current record,   whether they're brand new or have an updated attribute. No ChangeType/ChangeDate metadata is provided (this mirrors how      many real-world source extracts behave — the source doesn't tell you what changed, your pipeline figures that out)  
 ▫️Contains a mix of updates to existing customers (CustomerID already in master, one or more attributes changed) and brand-   new customers (CustomerID not in master at all) — so downstream logic must distinguish INSERT vs. UPDATE itself, typically   via a LEFT JOIN/MERGE against the current dim_customer on CustomerID  
 ▫️Since no change timestamp is provided by the source, the pipeline's own load/batch date is used as EffectiveStartDate       when applying SCD2 — a common real-world compromise when source systems don't expose their own change timestamps
 
-<u>Orders Schema:</u> OrderID, CustomerID, CustomerName, Email, City, Country, OrderDate, LastModifiedTS, Product, Category, Quantity, UnitPrice, PaymentMode, OrderStatus  
+<ins>Orders Schema:</ins> OrderID, CustomerID, CustomerName, Email, City, Country, OrderDate, LastModifiedTS, Product, Category, Quantity, UnitPrice, PaymentMode, OrderStatus  
 ▫️CustomerName, Email, City, Country on each order are pulled directly from the same customer record as master (not           independently generated), so they always match exactly at load time  
 ▫️OrderDate — used as the load/partition reference for the historical batch  
 ▫️LastModifiedTS — watermark column driving incremental extraction and MERGE logic on fact_orders
 
 # 🛠️ Tech Stack  
-  <u>Layer</u> | <u>Tool</u>  
+  __Layer__ | __Tool__  
   -- | --
 🔸Storage | OneLake (Fabric Lakehouse)  
 🔸Compute | Fabric Spark Notebooks (PySpark, Spark SQL)  
