@@ -79,7 +79,7 @@ Synthetic retail dataset, designed specifically to demonstrate incremental ETL a
 
 <ins>Customer Master Schema:</ins> CustomerID, CustomerName, Email, City, Country, CustomerSince
 
-<ins>Customer Change Feed Schema:</ins> identical to master — CustomerID, CustomerName, Email, City, Country, CustomerSince
+<ins>Customer Change Feed Schema:</ins> identical to master — CustomerID, CustomerName, Email, City, Country, CustomerSince  
 ▫️Modeled as a full-row snapshot feed, not a sparse diff — the source simply sends each customer's complete current record,   whether they're brand new or have an updated attribute. No ChangeType/ChangeDate metadata is provided (this mirrors how      many real-world source extracts behave — the source doesn't tell you what changed, your pipeline figures that out)  
 ▫️Contains a mix of updates to existing customers (CustomerID already in master, one or more attributes changed) and brand-   new customers (CustomerID not in master at all) — so downstream logic must distinguish INSERT vs. UPDATE itself, typically   via a LEFT JOIN/MERGE against the current dim_customer on CustomerID  
 ▫️Since no change timestamp is provided by the source, the pipeline's own load/batch date is used as EffectiveStartDate       when applying SCD2 — a common real-world compromise when source systems don't expose their own change timestamps
