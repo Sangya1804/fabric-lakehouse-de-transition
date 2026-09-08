@@ -12,16 +12,16 @@ Built as part of an MSBI Developer → Data Engineer transition, alongside DP-70
 🔸Apply CI/CD via Fabric Git integration and deployment pipelines (dev → test → prod)
 
 # 🏗️ Architecture
-                    ┌─────────────────────────────────────────────┐
-                    │              Microsoft Fabric               │
-                    │                                             │
-  Raw CSV Files     │   ┌──────────┐    ┌──────────┐   ┌─────────┐│    ┌───────────┐
-  (historical +     │──▶  BRONZE  │───▶│  SILVER  │──▶│  GOLD   |───▶│ Power BI  │
-  daily incremental)│   │ (raw)    │    │ (cleaned)│   │ (agg.)  ││    │Direct Lake│
-                    │   └──────────┘    └──────────┘   └─────────┘│    └───────────┘
-                    │        ▲                                    │
-                    │        │orchestrated by Fabric Data Pipeline│
-                    └─────────────────────────────────────────────┘
+                      ┌─────────────────────────────────────────────┐
+                      │              Microsoft Fabric               │
+                      │                                             │
+    Raw CSV Files     │   ┌──────────┐    ┌──────────┐   ┌─────────┐│    ┌───────────┐
+    (historical +     │──▶  BRONZE  │───▶│  SILVER  │──▶│  GOLD   |───▶│ Power BI  │
+    daily incremental)│   │ (raw)    │    │ (cleaned)│   │ (agg.)  ││    │Direct Lake│
+                      │   └──────────┘    └──────────┘   └─────────┘│    └───────────┘
+                      │        ▲                                    │
+                      │        │orchestrated by Fabric Data Pipeline│
+                      └─────────────────────────────────────────────┘
 🔸Bronze: Raw ingested data, minimal transformation, schema-on-read
 🔸Silver: Cleaned, deduplicated, conformed data — MERGE/upsert applied here for incremental updates
 🔸Gold: Business-level aggregates, ready for reporting
