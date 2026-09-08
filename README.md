@@ -31,7 +31,7 @@ Built as part of an MSBI Developer → Data Engineer transition, alongside DP-70
 
 🔸Customer attributes (City, Country, Email) are tracked as a proper SCD Type 2 dimension, rather than overwritten in place (Type 1). This preserves history — e.g. what a customer's city was at the time a given order was placed — instead of losing that context.
 
-<u>dim_customer (silver/gold layer):</u>  
+<ins>dim_customer (silver/gold layer):</ins>  
   __Column__ | __Purpose__  
   -- | --
 🔸CustomerSK | Surrogate key — uniquely identifies each version of a customer row  
@@ -67,6 +67,7 @@ Order status (Ordered → Processing → Shipped → Delivered, or Cancelled/Ret
 Synthetic retail dataset, designed specifically to demonstrate incremental ETL and SCD Type 2 patterns. All files share a single canonical customer pool, so CustomerID and customer attributes match exactly across every file — no synthetic mismatches.
 
   __File__ | __Rows__ | __Purpose__  
+  -- | -- | --
 🔸customer_master.csv | 5,000 | Day 0 baseline — initial load source for the dim_customer dimension  
 🔸customer_profile_changes.csv | 60 | Full-row customer snapshot feed — 60 updates + 25 new customers — drives SCD Type 2 MERGE logic on dim_customer  
 🔸orders_historical.csv | 200,000 | Initial bulk load into fact_orders (Day 0)  
