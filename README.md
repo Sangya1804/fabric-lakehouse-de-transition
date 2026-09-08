@@ -5,6 +5,7 @@ Built as part of an MSBI Developer → Data Engineer transition, alongside DP-70
 
 # 🎯 Project Goals
 🔸Design and build a production-style ETL pipeline: historical bulk load + daily incremental ingestion
+
 🔸Implement medallion architecture (bronze/silver/gold) using Fabric Lakehouse and Delta Lake
 🔸Practice real incremental patterns: watermark-based extraction, MERGE/upsert logic for updated records
 🔸Orchestrate the pipeline with Fabric Data Pipelines, add monitoring and basic data quality checks
@@ -100,14 +101,14 @@ Synthetic retail dataset, designed specifically to demonstrate incremental ETL a
 🔸Version control	      Git / GitHub
 
 # 📁 Repository Structure
-fabric-lakehouse-de-transition/
-├── README.md
-├── notebooks/          # Exported PySpark notebooks (bronze, silver, gold layers)
-├── sql/                # Spark SQL / T-SQL scripts (views, merge statements)
-├── docs/
-│   ├── architecture-diagram.png
-│   └── learning-log.md   # Design decisions & "why X over Y" notes
-└── .gitignore
+    fabric-lakehouse-de-transition/
+    ├── README.md
+    ├── notebooks/          # Exported PySpark notebooks (bronze, silver, gold layers)
+    ├── sql/                # Spark SQL / T-SQL scripts (views, merge statements)
+    ├── docs/
+    │   ├── architecture-diagram.png
+    │   └── learning-log.md   # Design decisions & "why X over Y" notes
+    └── .gitignore
 
 # ✅ Progress Checklist
 ✔️ Fabric workspace + Lakehouse setup
