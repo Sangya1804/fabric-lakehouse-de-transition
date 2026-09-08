@@ -31,15 +31,15 @@ Built as part of an MSBI Developer → Data Engineer transition, alongside DP-70
 
 🔸Customer attributes (City, Country, Email) are tracked as a proper SCD Type 2 dimension, rather than overwritten in place (Type 1). This preserves history — e.g. what a customer's city was at the time a given order was placed — instead of losing that context.
 
-[dim_customer (silver/gold layer):]  
-  [Column] | [Purpose]  
+<u>dim_customer (silver/gold layer):</u>  
+  __Column__ | __Purpose__  
   -- | --
 🔸CustomerSK | Surrogate key — uniquely identifies each version of a customer row  
 🔸CustomerID | Natural/business key — same across all versions of a customer  
 🔸CustomerName, Email, City, Country | Tracked attributes  
 🔸EffectiveStartDate | When this version became active  
-🔸EffectiveEndDate	                    When this version stopped being active (NULL / far-future date if current)  
-🔸IsActive	                            1 for the current version, 0 for historical versions
+🔸EffectiveEndDate | When this version stopped being active (NULL / far-future date if current)  
+🔸IsActive | 1 for the current version, 0 for historical versions
 
 When a change arrives via customer_profile_changes.csv:  
 1. The current active row for that CustomerID is expired (IsActive = 0, EffectiveEndDate set)  
@@ -52,53 +52,53 @@ fact_orders remains a standard fact table, joined to dim_customer on CustomerID 
 📜 Order Status History (SCD Type 2 pattern applied to order status)
 Order status (Ordered → Processing → Shipped → Delivered, or Cancelled/Returned) is tracked as full history, not overwritten in place — so the complete lifecycle of every order is preserved, not just its current state.
 
-[fact_order_status_history (silver layer):]  
-  [Column]	                  [Purpose]  
-🔸OrderID	                    Links back to fact_orders  
-🔸OrderStatus	                The status at this point in the order's lifecycle  
-🔸StatusEffectiveStartDate	  When this status became active  
-🔸StatusEffectiveEndDate	    When this status stopped being active (NULL if current)  
-🔸IsCurrentStatus	            1 for the order's current status, 0 for past statuses
+<u>fact_order_status_history (silver layer):</u>  
+  __Column__ | __Purpose__
+  -- | --
+🔸OrderID | Links back to fact_orders  
+🔸OrderStatus | The status at this point in the order's lifecycle  
+🔸StatusEffectiveStartDate | When this status became active  
+🔸StatusEffectiveEndDate | When this status stopped being active (NULL if current)  
+🔸IsCurrentStatus | 1 for the order's current status, 0 for past statuses
 
 ◽Design note: fact_orders itself stays immutable — core order details (customer, product, quantity, amount, order date) don't change after placement. Only status changes over time, so status is split out into its own history table rather than applying full-row SCD2 to fact_orders. Each incremental order batch (which already carries OrderStatus + LastModifiedTS) is treated as a status transition event at the silver layer: the previous current-status row is expired, and a new one is inserted — the same expire-old/insert-new mechanic used for dim_customer, applied here to a fact attribute instead of a dimension attribute.
 
 # 📊 Dataset
 Synthetic retail dataset, designed specifically to demonstrate incremental ETL and SCD Type 2 patterns. All files share a single canonical customer pool, so CustomerID and customer attributes match exactly across every file — no synthetic mismatches.
 
-  [File]	                        [Rows]	  [Purpose]  
-🔸customer_master.csv	            5,000	    Day 0 baseline — initial load source for the dim_customer dimension  
-🔸customer_profile_changes.csv	  60        Full-row customer snapshot feed — 60 updates + 25 new customers  
-                                            — drives SCD Type 2 MERGE logic on dim_customer  
-🔸orders_historical.csv	          200,000	  Initial bulk load into fact_orders (Day 0)  
-🔸orders_incremental_day1.csv	    ~600	    New orders + ~100 status updates to existing orders  
-🔸orders_incremental_day2.csv	    ~635	    New orders + ~100 status updates  
-🔸orders_incremental_day3.csv	    ~536	    New orders + ~100 status updates
+  __File__ | __Rows__ | __Purpose__  
+🔸customer_master.csv | 5,000 | Day 0 baseline — initial load source for the dim_customer dimension  
+🔸customer_profile_changes.csv | 60 | Full-row customer snapshot feed — 60 updates + 25 new customers — drives SCD Type 2 MERGE logic on dim_customer  
+🔸orders_historical.csv | 200,000 | Initial bulk load into fact_orders (Day 0)  
+🔸orders_incremental_day1.csv | ~600 | New orders + ~100 status updates to existing orders  
+🔸orders_incremental_day2.csv | ~635 | New orders + ~100 status updates  
+🔸orders_incremental_day3.csv | ~536 | New orders + ~100 status updates
 
-[CustomerID] — a unique 6-digit number, consistent across all files (not a simple 1, 2, 3… sequence, to better resemble a real-world customer identifier).
+<u>CustomerID</u> — a unique 6-digit number, consistent across all files (not a simple 1, 2, 3… sequence, to better resemble a real-world customer identifier).
 
-[Customer master schema:] CustomerID, CustomerName, Email, City, Country, CustomerSince
+<u>Customer Master Schema:</u> CustomerID, CustomerName, Email, City, Country, CustomerSince
 
-[Customer change feed schema:] identical to master — CustomerID, CustomerName, Email, City, Country, CustomerSince
-
+<u>Customer Change Feed Schema:</u> identical to master — CustomerID, CustomerName, Email, City, Country, CustomerSince
 ▫️Modeled as a full-row snapshot feed, not a sparse diff — the source simply sends each customer's complete current record,   whether they're brand new or have an updated attribute. No ChangeType/ChangeDate metadata is provided (this mirrors how      many real-world source extracts behave — the source doesn't tell you what changed, your pipeline figures that out)  
 ▫️Contains a mix of updates to existing customers (CustomerID already in master, one or more attributes changed) and brand-   new customers (CustomerID not in master at all) — so downstream logic must distinguish INSERT vs. UPDATE itself, typically   via a LEFT JOIN/MERGE against the current dim_customer on CustomerID  
 ▫️Since no change timestamp is provided by the source, the pipeline's own load/batch date is used as EffectiveStartDate       when applying SCD2 — a common real-world compromise when source systems don't expose their own change timestamps
 
-[Orders schema:] OrderID, CustomerID, CustomerName, Email, City, Country, OrderDate, LastModifiedTS, Product, Category, Quantity, UnitPrice, PaymentMode, OrderStatus  
+<u>Orders Schema:</u> OrderID, CustomerID, CustomerName, Email, City, Country, OrderDate, LastModifiedTS, Product, Category, Quantity, UnitPrice, PaymentMode, OrderStatus  
 ▫️CustomerName, Email, City, Country on each order are pulled directly from the same customer record as master (not           independently generated), so they always match exactly at load time  
 ▫️OrderDate — used as the load/partition reference for the historical batch  
 ▫️LastModifiedTS — watermark column driving incremental extraction and MERGE logic on fact_orders
 
 # 🛠️ Tech Stack  
-  [Layer]	              [Tool]  
-🔸Storage	              OneLake (Fabric Lakehouse)  
-🔸Compute	              Fabric Spark Notebooks (PySpark, Spark SQL)  
-🔸Table format	        Delta Lake  
-🔸Orchestration	        Fabric Data Pipelines  
-🔸Real-time (planned)	  Eventstream / Eventhouse (KQL)  
-🔸Reporting	            Power BI — Direct Lake mode  
-🔸CI/CD	                Fabric Git Integration + Deployment Pipelines  
-🔸Version control	      Git / GitHub
+  <u>Layer</u> | <u>Tool</u>  
+  -- | --
+🔸Storage | OneLake (Fabric Lakehouse)  
+🔸Compute | Fabric Spark Notebooks (PySpark, Spark SQL)  
+🔸Table format | Delta Lake  
+🔸Orchestration | Fabric Data Pipelines  
+🔸Real-time (planned) | Eventstream / Eventhouse (KQL)  
+🔸Reporting | Power BI — Direct Lake mode  
+🔸CI/CD | Fabric Git Integration + Deployment Pipelines  
+🔸Version control | Git / GitHub
 
 # 📁 Repository Structure
     fabric-lakehouse-de-transition/
