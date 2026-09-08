@@ -32,11 +32,12 @@ Built as part of an MSBI Developer → Data Engineer transition, alongside DP-70
 🔸Customer attributes (City, Country, Email) are tracked as a proper SCD Type 2 dimension, rather than overwritten in place (Type 1). This preserves history — e.g. what a customer's city was at the time a given order was placed — instead of losing that context.
 
 [dim_customer (silver/gold layer):]  
-  [Column]&emsp;&emsp;&emsp;&emsp;&emsp;[Purpose]  
-🔸CustomerSK&emsp;&emsp;&emsp;&emsp;&emsp;Surrogate key — uniquely identifies each version of a customer row  
-🔸CustomerID	                          Natural/business key — same across all versions of a customer  
-🔸CustomerName, Email, City, Country	  Tracked attributes  
-🔸EffectiveStartDate	                  When this version became active  
+  [Column] | [Purpose]  
+  -- | --
+🔸CustomerSK | Surrogate key — uniquely identifies each version of a customer row  
+🔸CustomerID | Natural/business key — same across all versions of a customer  
+🔸CustomerName, Email, City, Country | Tracked attributes  
+🔸EffectiveStartDate | When this version became active  
 🔸EffectiveEndDate	                    When this version stopped being active (NULL / far-future date if current)  
 🔸IsActive	                            1 for the current version, 0 for historical versions
 
