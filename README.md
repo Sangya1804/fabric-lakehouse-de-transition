@@ -4,7 +4,7 @@ An end-to-end Data Engineering portfolio project built on Microsoft Fabric, impl
 Built as part of an MSBI Developer → Data Engineer transition, alongside DP-700 (Microsoft Fabric Data Engineer Associate) certification prep.
 
 # 🎯 Project Goals
-🔸Design and build a production-style ETL pipeline: historical bulk load + daily incremental ingestion 
+🔸Design and build a production-style ETL pipeline: historical bulk load + daily incremental ingestion  
 🔸Implement medallion architecture (bronze/silver/gold) using Fabric Lakehouse and Delta Lake
 🔸Practice real incremental patterns: watermark-based extraction, MERGE/upsert logic for updated records
 🔸Orchestrate the pipeline with Fabric Data Pipelines, add monitoring and basic data quality checks
