@@ -85,4 +85,12 @@ Design decisions, "why X over Y" reasoning, and things I learned while building 
 
 ---
 
+9999-12-31 sentinel date instead of NULL for EffectiveEndDate / StatusEffectiveEndDate
+
+Decision: For the "currently active" row in both dim_customer (EffectiveEndDate) and fact_order_status_history (StatusEffectiveEndDate), use a far-future sentinel date (9999-12-31) rather than NULL.
+
+Why: Point-in-time queries ("what was this customer's city as of date X?", "what was the order's status as of date X?") naturally want a range check like WHERE EffectiveStartDate <= @date AND EffectiveEndDate >= @date. With NULL representing "still active," that comparison silently fails (NULL >= @date is unknown, not true), forcing every query to add special-case logic (EffectiveEndDate IS NULL OR EffectiveEndDate >= @date). A sentinel date keeps the range comparison uniform everywhere, with no special-casing needed — a small thing, but it's the kind of detail that signals real production experience with SCD2 rather than a textbook-only understanding.
+
+---
+
 *(More entries added as the project progresses — bronze/silver/gold design choices, pipeline orchestration decisions, monitoring approach, etc.)*
