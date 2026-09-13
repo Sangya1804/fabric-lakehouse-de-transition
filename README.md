@@ -2,93 +2,111 @@
 An end-to-end Data Engineering portfolio project built on Microsoft Fabric, implementing a medallion architecture (bronze → silver → gold) with PySpark notebooks, Delta Lake, and Power BI (Direct Lake).
 
 Built as part of an MSBI Developer → Data Engineer transition, alongside DP-700 (Microsoft Fabric Data Engineer Associate) certification prep.
-
+---
 # 🎯 Project Goals
-🔸Design and build a production-style ETL pipeline: historical bulk load + daily incremental ingestion  
-🔸Implement medallion architecture (bronze/silver/gold) using Fabric Lakehouse and Delta Lake  
-🔸Practice real incremental patterns: watermark-based extraction, MERGE/upsert logic for updated records  
-🔸Orchestrate the pipeline with Fabric Data Pipelines, add monitoring and basic data quality checks  
+🔸Design and build a production-style ETL pipeline: truncate-and-load staging, incremental dimensional merge  
+🔸Implement a proper star schema with SCD Type 2 (dim_customer, fact_order_status_history)  
+🔸Practice real incremental patterns: watermark-based extraction, MERGE/upsert logic  
+🔸Orchestrate the pipeline with separate Fabric notebooks per layer, chained by a Fabric Data Pipeline  
 🔸Serve the final gold layer through Power BI using Direct Lake mode  
 🔸Apply CI/CD via Fabric Git integration and deployment pipelines (dev → test → prod)
-
+---
 # 🏗️ Architecture
-                      ┌─────────────────────────────────────────────┐
-                      │              Microsoft Fabric               │
-                      │                                             │
-    Raw CSV Files     │   ┌──────────┐    ┌──────────┐   ┌─────────┐│    ┌───────────┐
-    (historical +     │──▶  BRONZE  │───▶│  SILVER  │──▶│  GOLD   |───▶│ Power BI  │
-    daily incremental)│   │ (raw)    │    │ (cleaned)│   │ (agg.)  ││    │Direct Lake│
-                      │   └──────────┘    └──────────┘   └─────────┘│    └───────────┘
-                      │        ▲                                    │
-                      │        │orchestrated by Fabric Data Pipeline│
-                      └─────────────────────────────────────────────┘
-🔸Bronze: Raw ingested data, minimal transformation, schema-on-read  
-🔸Silver: Cleaned, deduplicated, conformed data — MERGE/upsert applied here for incremental updates  
-🔸Gold: Business-level aggregates, ready for reporting  
-🔸Serving: Power BI semantic model in Direct Lake mode, reading gold Delta tables directly from OneLake (no import/refresh cycle)
-
+                                         Source file(s) arrive
+                                  (email / SharePoint / folder drop)
+                                                  │
+                                                  ▼
+                   ┌──────────────────────────────────────────────────────────────────┐
+                   │                        Microsoft Fabric                          │
+                   │                                                                  │
+                   │  ┌───────────────┐   ┌───────────────┐   ┌─────────────────────┐ │     ┌───────────┐
+                   │  │  RAW / BRONZE │──▶│    SILVER     │──▶│        GOLD        │ ┼───▶│ Power BI  │
+                   │  │ truncate&load │   │ truncate&load │   │  incremental MERGE  │ │     │Direct Lake│
+                   │  │ (today's file │   │ (today's      │   │  (Type 1/2 — the    │ │     └───────────┘
+                   │  │  only, no     │   │  cleaned      │   │  only layer that    │ │
+                   │  │  history kept)│   │  batch only)  │   │  persists history)  │ │
+                   │  └───────────────┘   └───────────────┘   └─────────────────────┘ │
+                   │         ▲                                                        │
+                   │         │  orchestrated by Fabric Data Pipeline (scheduled)      │
+                   └──────────────────────────────────────────────────────────────────┘
+🔸Raw/Bronze — Truncate & load. Holds only whatever file(s) arrived in this run; no persistent history of its own. Mirrors how real source systems typically behave — they hand you today's file, they don't track history for you.  
+🔸Silver — Truncate & load. Cleaned/validated version of today's raw batch: correct data types, NOT NULL enforcement, dedup of exact duplicates. Still transient, still no accumulated history.  
+🔸Gold — The only layer that persists history. Incremental MERGE: Type 1 for fact_orders (insert-once, immutable), Type 2 for dim_customer and fact_order_status_history (expire-old/insert-new).  
+🔸Serving — Power BI semantic model in Direct Lake mode, reading gold Delta tables directly from OneLake (no import/refresh cycle).
+---
+# Pipeline flow (per scheduled run):  
+1. Source system drops file(s) into a folder / SharePoint / mailbox — landed in Files/incoming/
+2. Fabric Data Pipeline triggers on schedule, picks up file(s) one at a time
+3. Raw: truncate table, load the incoming file as-is
+4. Archive: once the raw load succeeds, move the source file from Files/incoming/ to Files/archive/YYYY-MM-DD/ (via mssparkutils.fs.mv()) — this is the only place the original file's history is preserved, since the raw/silver tables themselves don't retain it. A failed load should not archive the file, so it remains available for reprocessing.
+5. Silver: truncate table, load a cleaned/validated version of what's in raw
+6. Gold: MERGE the cleaned silver data into the persistent dim/fact tables (Type 1/2 as appropriate)
+7. Power BI reports read gold via Direct Lake — always current, no separate refresh step
+---
+# 📋 Table Inventory
+__Layer__ |	__Table__ |	__Load Pattern__ | __Purpose__
+-- | -- | -- | --
+🔸Raw/Bronze | Customer |	Truncate & load |	Whatever customer file arrived this run (master or change feed)  
+🔸Raw/Bronze | Orders	| Truncate & load | Whatever order file arrived this run  
+🔸— |	Files/archive/<date>/ |	Append (files, not a table) |	Preserves each processed source file, since raw/silver tables themselves retain no history  
+🔸Silver | Customer | Truncate & load | Cleaned/validated version of today's raw batch  
+🔸Silver | Orders | Truncate & load | Cleaned/validated version of today's raw batch  
+🔸Gold | dim_customer | Incremental MERGE (Type 2) | Persisted customer dimension — full attribute history  
+🔸Gold | fact_orders | Incremental MERGE (Type 1) | Persisted, immutable order line items — grain: one row per order line item  
+🔸Gold | fact_order_status_history | Incremental MERGE (Type 2) | Persisted, full line-item-level status lifecycle  
+🔸Gold | dim_date | Generated once | Calendar dimension, built via Spark's sequence() function  
+🔸Gold | (reporting views) | — | Aggregates on the star schema — e.g. spend by category, monthly trends
+---
 # 🧩 Dimensional Model — Slowly Changing Dimension (Type 2)
 
 🔸Customer attributes (City, Country, Email) are tracked as a proper SCD Type 2 dimension, rather than overwritten in place (Type 1). This preserves history — e.g. what a customer's city was at the time a given order was placed — instead of losing that context.
 
-<ins>dim_customer (silver/gold layer):</ins>  
+<ins> _dim_customer — SCD Type 2_ </ins>  
   __Column__ | __Purpose__  
   -- | --
 🔸CustomerSK | Surrogate key — uniquely identifies each version of a customer row  
 🔸CustomerID | Natural/business key — same across all versions of a customer  
 🔸CustomerName, Email, City, Country | Tracked attributes  
 🔸EffectiveStartDate | When this version became active  
-🔸EffectiveEndDate | When this version stopped being active (NULL / far-future date if current)  
-🔸IsActive | 1 for the current version, 0 for historical versions
+🔸EffectiveEndDate | When this version stopped being active (9999-12-31 if current)  
+🔸IsCurrentRecord | 1 = current version, 0 = historical
 
-When a change arrives via customer_profile_changes.csv:  
-1. The current active row for that CustomerID is expired (IsActive = 0, EffectiveEndDate set)  
-2. A new row is inserted with the updated attribute(s), IsActive = 1, EffectiveEndDate = 9999-12-31  
+Initial load comes from customer_master.csv. Ongoing changes arrive via customer_profile_changes.csv — a full-row snapshot feed (same schema as master, no explicit "what changed" metadata) containing both updates to existing customers and brand-new customers. The pipeline itself determines INSERT vs. UPDATE by comparing incoming CustomerIDs against the current dim_customer.
 
-The initial load of dim_customer comes from customer_master.csv (Day 0 baseline, one row per customer, all marked IsActive = 1). Ongoing changes then arrive exclusively through the customer_profile_changes.csv feed — kept as a separate source from fact_orders, since customer master-data updates and order transactions are conceptually different feeds (and typically come from different systems in the real world, e.g. CRM vs. OMS).
+<ins> _fact_orders — immutable, Type 1_ </ins>  
+Grain: one row per order line item (an order can contain multiple products). Columns: OrderLineID (surrogate), OrderID, LineNumber, CustomerID (FK), OrderDate, Product, Category, Quantity, UnitPrice, PaymentMode. Created once, never versioned — core order details don't change after placement.
 
-fact_orders remains a standard fact table, joined to dim_customer on CustomerID (or the relevant CustomerSK at time of order — see docs/learning-log.md for the reasoning behind this design).
+<ins> _fact_order_status_history — SCD Type 2, line-item grain_ </ins>
+__Column__ | __Purpose__
+-- | --
+🔸OrderStatusHistorySK | Surrogate key  
+🔸OrderID, LineNumber | Composite key — matches fact_orders' grain  
+🔸CustomerID | Denormalized for query convenience  
+🔸OrderStatus | Status of this line item at this point in time  
+🔸StatusEffectiveStartDate / StatusEffectiveEndDate | Validity range (9999-12-31 if current)  
+🔸IsCurrentRecord | 1 = current status, 0 = historical
 
-📜 Order Status History (SCD Type 2 pattern applied to order status)
-Order status (Ordered → Processing → Shipped → Delivered, or Cancelled/Returned) is tracked as full history, not overwritten in place — so the complete lifecycle of every order is preserved, not just its current state.
+Kept as a separate table from fact_orders, not merged in — see docs/learning-log.md for why (short version: merging would duplicate immutable measures like Quantity/UnitPrice on every status change, risking silent revenue double-counting in any query that forgets to filter IsCurrentRecord = 1).
 
-<ins>fact_order_status_history (silver layer):</ins>  
-  __Column__ | __Purpose__
-  -- | --
-🔸OrderID | Links back to fact_orders  
-🔸OrderStatus | The status at this point in the order's lifecycle  
-🔸StatusEffectiveStartDate | When this status became active  
-🔸StatusEffectiveEndDate | When this status stopped being active (NULL if current)  
-🔸IsCurrentStatus | 1 for the order's current status, 0 for past statuses
+Grain is OrderID + LineNumber, not OrderID alone — real e-commerce systems (Amazon, Flipkart) allow individual items in one order to be cancelled or shipped independently, so status is a line-item-level concept.
 
-◽Design note: fact_orders itself stays immutable — core order details (customer, product, quantity, amount, order date) don't change after placement. Only status changes over time, so status is split out into its own history table rather than applying full-row SCD2 to fact_orders. Each incremental order batch (which already carries OrderStatus + LastModifiedTS) is treated as a status transition event at the silver layer: the previous current-status row is expired, and a new one is inserted — the same expire-old/insert-new mechanic used for dim_customer, applied here to a fact attribute instead of a dimension attribute.
-
+<ins> _dim_date — generated_ </ins>  
+Standard calendar dimension (DateKey, FullDate, Year, Quarter, Month, MonthName, DayName, IsWeekend), generated via Spark SQL's sequence() function rather than a recursive CTE (Spark SQL doesn't support recursion).
+---
 # 📊 Dataset
-Synthetic retail dataset, designed specifically to demonstrate incremental ETL and SCD Type 2 patterns. All files share a single canonical customer pool, so CustomerID and customer attributes match exactly across every file — no synthetic mismatches.
+All files share one canonical customer pool — CustomerID and attributes match exactly across every file.  
+__File__ | __Rows__ | __Purpose__
+-- | -- | --
+🔸customer_master.csv | 5,000 | Day 0 baseline load for dim_customer  
+🔸customer_profile_changes.csv | 85 | Full-row snapshot feed — 60 updates + 25 new customers  
+🔸orders_historical.csv | ~195,000 (100,000 orders) | Day 0 bulk load — line-item grain  
+🔸orders_incremental_day1/2/3.csv |	~900–1,000 each | New orders + status updates (cascading to all line items of an updated order)
 
-  __File__ | __Rows__ | __Purpose__  
-  -- | -- | --
-🔸customer_master.csv | 5,000 | Day 0 baseline — initial load source for the dim_customer dimension  
-🔸customer_profile_changes.csv | 60 | Full-row customer snapshot feed — 60 updates + 25 new customers — drives SCD Type 2 MERGE logic on dim_customer  
-🔸orders_historical.csv | 200,000 | Initial bulk load into fact_orders (Day 0)  
-🔸orders_incremental_day1.csv | ~600 | New orders + ~100 status updates to existing orders  
-🔸orders_incremental_day2.csv | ~635 | New orders + ~100 status updates  
-🔸orders_incremental_day3.csv | ~536 | New orders + ~100 status updates
-
-<ins>CustomerID</ins> — a unique 6-digit number, consistent across all files (not a simple 1, 2, 3… sequence, to better resemble a real-world customer identifier).
-
-<ins>Customer Master Schema:</ins> CustomerID, CustomerName, Email, City, Country, CustomerSince
-
-<ins>Customer Change Feed Schema:</ins> identical to master — CustomerID, CustomerName, Email, City, Country, CustomerSince  
-▫️Modeled as a full-row snapshot feed, not a sparse diff — the source simply sends each customer's complete current record,   whether they're brand new or have an updated attribute. No ChangeType/ChangeDate metadata is provided (this mirrors how      many real-world source extracts behave — the source doesn't tell you what changed, your pipeline figures that out)  
-▫️Contains a mix of updates to existing customers (CustomerID already in master, one or more attributes changed) and brand-   new customers (CustomerID not in master at all) — so downstream logic must distinguish INSERT vs. UPDATE itself, typically   via a LEFT JOIN/MERGE against the current dim_customer on CustomerID  
-▫️Since no change timestamp is provided by the source, the pipeline's own load/batch date is used as EffectiveStartDate       when applying SCD2 — a common real-world compromise when source systems don't expose their own change timestamps
-
-<ins>Orders Schema:</ins> OrderID, CustomerID, CustomerName, Email, City, Country, OrderDate, LastModifiedTS, Product, Category, Quantity, UnitPrice, PaymentMode, OrderStatus  
-▫️CustomerName, Email, City, Country on each order are pulled directly from the same customer record as master (not           independently generated), so they always match exactly at load time  
-▫️OrderDate — used as the load/partition reference for the historical batch  
-▫️LastModifiedTS — watermark column driving incremental extraction and MERGE logic on fact_orders
-
+_CustomerID_ — unique 6-digit number (not sequential), consistent across all files.  
+<ins> _Customer Schemas (master and change feed share identical columns):_ </ins> CustomerID, CustomerName, Email, City, Country, CustomerSince  
+<ins> _Orders Schema:_ </ins> OrderLineID, OrderID, LineNumber, CustomerID, OrderDate, LastModifiedTS, Product, Category, Quantity, UnitPrice, PaymentMode, OrderStatus — order-only fields; customer attributes are deliberately excluded and retrieved via join to dim_customer.  
+A single consolidated script (scripts/generate_final_dataset.py) produces all 6 files with guaranteed cross-file consistency — included in this repo for reproducibility.
+---
 # 🛠️ Tech Stack  
   __Layer__ | __Tool__  
   -- | --
@@ -100,35 +118,53 @@ Synthetic retail dataset, designed specifically to demonstrate incremental ETL a
 🔸Reporting | Power BI — Direct Lake mode  
 🔸CI/CD | Fabric Git Integration + Deployment Pipelines  
 🔸Version control | Git / GitHub
-
+---
+# 📓 Notebooks / Pipeline Structure  
+Each layer transition is a separate notebook, chained together by a Fabric Data Pipeline — mirroring real production separation of concerns:  
+__Notebook__ | __Purpose__
+-- | --
+01_raw_customer | Truncate & load raw Customer from Files/incoming/, then archive the source file to Files/archive/<date>/
+02_raw_orders | Truncate & load raw Orders from Files/incoming/, then archive the source file
+03_silver_customer | Clean/validate raw Customer → silver Customer
+04_silver_orders | Clean/validate raw Orders → silver Orders
+05_gold_dim_customer | MERGE silver Customer into dim_customer (SCD2)
+06_gold_fact_orders | MERGE silver Orders into fact_orders (Type 1)
+07_gold_fact_order_status_history | Derive status changes, MERGE into status history (SCD2)
+08_gold_dim_date | One-time generation of dim_date
+09_gold_aggregates | Reporting views/aggregate tables
+---
 # 📁 Repository Structure
     fabric-lakehouse-de-transition/
     ├── README.md
-    ├── notebooks/          # Exported PySpark notebooks (bronze, silver, gold layers)
-    ├── sql/                # Spark SQL / T-SQL scripts (views, merge statements)
+    ├── scripts/
+    │   └── generate_final_dataset.py   # single source of truth for all synthetic data
+    ├── notebooks/                      # exported PySpark notebooks, one per layer transition
+    ├── sql/                            # Spark SQL / T-SQL scripts (views, MERGE statements)
     ├── docs/
     │   ├── architecture-diagram.png
-    │   └── learning-log.md   # Design decisions & "why X over Y" notes
+    │   └── learning-log.md
     └── .gitignore
 
 # ✅ Progress Checklist
 ✔️ Fabric workspace + Lakehouse setup  
-✔️ Historical dataset generated (200K rows) + incremental batches designed  
-✔️ Customer master + profile change feed generated (for SCD Type 2), consistency-checked against orders data  
-✔️ Bronze layer: customer master + historical orders bulk load  
-✔️ Bronze layer: incremental ingestion (orders Day 1–3, customer profile changes)  
-✔️ Silver layer: dim_customer — SCD Type 2 implementation  
-✔️ Silver layer: fact_orders — cleaning, dedup, core immutable order details  
-✔️ Silver layer: fact_order_status_history — status history via SCD2-style pattern  
-✔️ Gold layer: business aggregates  
-✔️ Orchestration via Fabric Data Pipeline (scheduled + triggered)  
+✔️ Final dataset generated and consistency-verified (customer master, change feed, historical + incremental orders)  
+✔️ Raw/Bronze: initial Customer + Orders load  
+✔️ Switch raw/bronze + silver to truncate & load pattern (separate notebooks per layer)  
+✔️ File archiving: move processed source files from Files/incoming/ to Files/archive/<date>/ after successful raw load  
+✔️ Silver: Customer, Orders — cleaning, NOT NULL enforcement, dedup  
+✔️ Gold: dim_customer — SCD Type 2 MERGE  
+✔️ Gold: fact_orders — Type 1 MERGE  
+✔️ Gold: fact_order_status_history — SCD2 MERGE, line-item grain  
+✔️ Gold: dim_date — generated  
+✔️ Gold: reporting aggregate views  
+✔️ Orchestration via Fabric Data Pipeline (scheduled, chaining all notebooks)  
 ✔️ Monitoring / data quality checks  
 ✔️ Power BI report on gold layer (Direct Lake)  
 ✔️ CI/CD: Fabric Git integration + deployment pipeline (dev/test/prod)  
-✔️ DP-700 certification
- 
+✔️ DP-700 certification  
+--- 
 # 📓 Learning Log
-Key design decisions and reasoning are tracked in docs/learning-log.md — written while building, not reconstructed after the fact.
-
+Key design decisions and reasoning — including a couple of real mistakes caught and corrected along the way — are tracked in docs/learning-log.md.  
+---
 # 🔗 Background
-This project is part of a career transition from MSBI Developer (SSIS, SQL Server, Power BI, some ADF) to Data Engineer, focused on building hands-on depth in Spark/PySpark, lakehouse architecture, and modern orchestration — while retaining strengths in SQL and BI reporting.
+This project is part of a career transition from MSBI Developer (SSIS, SQL Server, Power BI, some ADF) to Data Engineer, focused on building hands-on depth in Spark/PySpark, lakehouse architecture, and modern orchestration — while retaining strengths in SQL and BI reporting. The truncate-and-load-staging → incremental-merge-to-dimensional-model pattern used here maps directly onto classic SSIS staging-table patterns, just implemented with Fabric notebooks and Delta MERGE instead.
