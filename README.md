@@ -2,16 +2,16 @@
 An end-to-end Data Engineering portfolio project built on Microsoft Fabric, implementing a medallion architecture (bronze → silver → gold) with PySpark notebooks, Delta Lake, and Power BI (Direct Lake).
 
 Built as part of an MSBI Developer → Data Engineer transition, alongside DP-700 (Microsoft Fabric Data Engineer Associate) certification prep.
----
-# 🎯 Project Goals
+
+# 🎯 Project Goals  
 🔸Design and build a production-style ETL pipeline: truncate-and-load staging, incremental dimensional merge  
 🔸Implement a proper star schema with SCD Type 2 (dim_customer, fact_order_status_history)  
 🔸Practice real incremental patterns: watermark-based extraction, MERGE/upsert logic  
 🔸Orchestrate the pipeline with separate Fabric notebooks per layer, chained by a Fabric Data Pipeline  
 🔸Serve the final gold layer through Power BI using Direct Lake mode  
 🔸Apply CI/CD via Fabric Git integration and deployment pipelines (dev → test → prod)
----
-# 🏗️ Architecture
+
+# 🏗️ Architecture  
                                          Source file(s) arrive
                                   (email / SharePoint / folder drop)
                                                   │
@@ -33,7 +33,7 @@ Built as part of an MSBI Developer → Data Engineer transition, alongside DP-70
 🔸Silver — Truncate & load. Cleaned/validated version of today's raw batch: correct data types, NOT NULL enforcement, dedup of exact duplicates. Still transient, still no accumulated history.  
 🔸Gold — The only layer that persists history. Incremental MERGE: Type 1 for fact_orders (insert-once, immutable), Type 2 for dim_customer and fact_order_status_history (expire-old/insert-new).  
 🔸Serving — Power BI semantic model in Direct Lake mode, reading gold Delta tables directly from OneLake (no import/refresh cycle).
----
+
 # Pipeline flow (per scheduled run):  
 1. Source system drops file(s) into a folder / SharePoint / mailbox — landed in Files/incoming/
 2. Fabric Data Pipeline triggers on schedule, picks up file(s) one at a time
@@ -56,7 +56,7 @@ __Layer__ |	__Table__ |	__Load Pattern__ | __Purpose__
 🔸Gold | fact_order_status_history | Incremental MERGE (Type 2) | Persisted, full line-item-level status lifecycle  
 🔸Gold | dim_date | Generated once | Calendar dimension, built via Spark's sequence() function  
 🔸Gold | (reporting views) | — | Aggregates on the star schema — e.g. spend by category, monthly trends
----
+
 # 🧩 Dimensional Model — Slowly Changing Dimension (Type 2)
 
 🔸Customer attributes (City, Country, Email) are tracked as a proper SCD Type 2 dimension, rather than overwritten in place (Type 1). This preserves history — e.g. what a customer's city was at the time a given order was placed — instead of losing that context.
@@ -92,7 +92,7 @@ Grain is OrderID + LineNumber, not OrderID alone — real e-commerce systems (Am
 
 <ins> _dim_date — generated_ </ins>  
 Standard calendar dimension (DateKey, FullDate, Year, Quarter, Month, MonthName, DayName, IsWeekend), generated via Spark SQL's sequence() function rather than a recursive CTE (Spark SQL doesn't support recursion).
----
+
 # 📊 Dataset
 All files share one canonical customer pool — CustomerID and attributes match exactly across every file.  
 __File__ | __Rows__ | __Purpose__
@@ -106,7 +106,7 @@ _CustomerID_ — unique 6-digit number (not sequential), consistent across all f
 <ins> _Customer Schemas (master and change feed share identical columns):_ </ins> CustomerID, CustomerName, Email, City, Country, CustomerSince  
 <ins> _Orders Schema:_ </ins> OrderLineID, OrderID, LineNumber, CustomerID, OrderDate, LastModifiedTS, Product, Category, Quantity, UnitPrice, PaymentMode, OrderStatus — order-only fields; customer attributes are deliberately excluded and retrieved via join to dim_customer.  
 A single consolidated script (scripts/generate_final_dataset.py) produces all 6 files with guaranteed cross-file consistency — included in this repo for reproducibility.
----
+
 # 🛠️ Tech Stack  
   __Layer__ | __Tool__  
   -- | --
@@ -118,7 +118,7 @@ A single consolidated script (scripts/generate_final_dataset.py) produces all 6 
 🔸Reporting | Power BI — Direct Lake mode  
 🔸CI/CD | Fabric Git Integration + Deployment Pipelines  
 🔸Version control | Git / GitHub
----
+
 # 📓 Notebooks / Pipeline Structure  
 Each layer transition is a separate notebook, chained together by a Fabric Data Pipeline — mirroring real production separation of concerns:  
 __Notebook__ | __Purpose__
@@ -132,7 +132,7 @@ __Notebook__ | __Purpose__
 07_gold_fact_order_status_history | Derive status changes, MERGE into status history (SCD2)
 08_gold_dim_date | One-time generation of dim_date
 09_gold_aggregates | Reporting views/aggregate tables
----
+
 # 📁 Repository Structure
     fabric-lakehouse-de-transition/
     ├── README.md
@@ -162,9 +162,9 @@ __Notebook__ | __Purpose__
 ✔️ Power BI report on gold layer (Direct Lake)  
 ✔️ CI/CD: Fabric Git integration + deployment pipeline (dev/test/prod)  
 ✔️ DP-700 certification  
---- 
+
 # 📓 Learning Log
 Key design decisions and reasoning — including a couple of real mistakes caught and corrected along the way — are tracked in docs/learning-log.md.  
----
+
 # 🔗 Background
 This project is part of a career transition from MSBI Developer (SSIS, SQL Server, Power BI, some ADF) to Data Engineer, focused on building hands-on depth in Spark/PySpark, lakehouse architecture, and modern orchestration — while retaining strengths in SQL and BI reporting. The truncate-and-load-staging → incremental-merge-to-dimensional-model pattern used here maps directly onto classic SSIS staging-table patterns, just implemented with Fabric notebooks and Delta MERGE instead.
