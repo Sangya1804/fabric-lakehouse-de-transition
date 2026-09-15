@@ -58,3 +58,20 @@ Recursive CTEs are the standard T-SQL technique for generating a date series —
 Originally, bronze was designed to accumulate history via appends. Reconsidered to match how real source systems actually behave — they hand over "today's file" with no history-tracking of their own, so raw/silver should be transient staging, truncated and reloaded each run. Gold becomes the only layer that persists accumulated history, via incremental MERGE (Type 1/2). This mirrors a classic SSIS staging-table pattern (staging → cleaned staging → MERGE into dimension/fact), just implemented with Fabric notebooks and Delta MERGE.
 
 __Follow-up:__ truncate & load means the raw/silver tables retain no audit trail of what a source file looked like on a given day. Fixed by archiving each source file itself — after a successful raw load, the file is moved from Files/incoming/ to Files/archive/<date>/ (mssparkutils.fs.mv()), rather than left in place or deleted. A failed load skips archiving, so the file stays available for reprocessing. This keeps the file-level audit trail intact without requiring the tables themselves to accumulate history.
+
+---
+
+### AppInstanceID for pipeline traceability
+
+Every table — raw through gold — carries an AppInstanceID integer column, identifying which pipeline run loaded each row. Generated once per run via a PipelineRunLog control table (MAX(AppInstanceID) + 1, with RunStartTime/RunStatus/RunEndTime logged for that run), then stamped consistently across every layer the run touches. This directly maps to a classic SSIS execution-ID/audit-log pattern: when a pipeline fails, you go straight to PipelineRunLog for the failed run, then filter every table by that AppInstanceID to see exactly what it touched — far faster than guessing from timestamps alone. The ID is generated once in the first notebook of a run and (once orchestrated via a real Fabric Data Pipeline) passed as a parameter into every subsequent notebook, so one run = one consistent ID everywhere, not a new ID per notebook.
+
+---
+
+### Delta Lake NOT NULL enforcement — ALTER TABLE and DataFrame schema hints don't reliably work
+
+Enforcing NOT NULL on an existing nullable Delta column turned out to be less straightforward than expected, and needed two failed attempts to get right:
+
+1. ALTER TABLE ... ALTER COLUMN ... SET NOT NULL fails outright on a column that's currently nullable, even when the data already satisfies the constraint (zero NULLs) — Delta Lake doesn't support tightening nullability via ALTER after the fact.
+2. Setting nullable=False on the DataFrame's schema before saveAsTable(..., mode="overwrite") silently doesn't stick — Delta can widen it back to nullable on write regardless of what the DataFrame schema says.
+
+_What actually works:_ declare the constraint in DDL at table-creation time (CREATE TABLE ... (col INT NOT NULL)), then INSERT INTO that table from the cleaned DataFrame. DDL-declared constraints are enforced as real Delta table metadata; DataFrame-writer schema hints are advisory and not always honored. Worth remembering as a genuine Delta Lake gotcha, not an SSIS/T-SQL-style ALTER TABLE that "just works."
